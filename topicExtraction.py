@@ -1,5 +1,3 @@
-# bert_topic_extraction.py
-
 import json
 import sys
 import os
@@ -10,10 +8,14 @@ from nltk.corpus import stopwords
 from bertopic import BERTopic
 from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
+from concurrent.futures import ProcessPoolExecutor
 
-nltk.download("stopwords")
-nltk.download("punkt")
-nltk.download("wordnet")
+# nltk.data.path.append('./nltk_data')
+
+# # Now you can download the data without SSL issues
+# nltk.download('stopwords', download_dir='/Users/sayliakarshe/nltk_data')
+# nltk.download('punkt', download_dir='./nltk_data')
+# nltk.download('wordnet', download_dir='./nltk_data')
 
 
 # Function to format and save JSON
@@ -52,39 +54,63 @@ def remove_stopwords(text):
 
 # Function to merge similar topics
 def merge_similar_topics(topics, similarity_matrix, threshold=0.9):
-    merged_topics = []
-    seen = set()
-
-    for i, topic in enumerate(topics):
-        if i in seen:
+    merged_topics = topics.copy()
+    for i in range(len(topics)):
+        if merged_topics[i] == "":
             continue
-
-        similar_topics = [i]
         for j in range(i + 1, len(topics)):
-            if similarity_matrix[i][j] > threshold:
-                similar_topics.append(j)
-                seen.add(j)
-
-        merged_topic = topics[i]
-        merged_topics.append(merged_topic)
-        seen.add(i)
+            if merged_topics[j] == "":
+                continue
+            if similarity_matrix[i, j] >= threshold:
+                merged_topics[j] = merged_topics[i]
 
     return merged_topics
 
 
 # Function to visualize the topic occurrences
 def visualize_topic_occurrences(df):
-    topic_counts = df["merged_label_names"].value_counts()
+    topic_counts = df["merged_label_names"].value_counts().head(10)
 
     plt.figure(figsize=(12, 8))
-    topic_counts.sort_values(ascending=False).plot(kind='bar')
+    topic_counts.sort_values(ascending=False).plot(kind="bar")
     plt.title("Occurrences of Merged Topics")
     plt.xlabel("Merged Topic Names")
     plt.ylabel("Number of Occurrences")
-    plt.xticks(rotation=90)
+    plt.xticks(rotation=75, ha="right", fontsize=10)  # Adjust font size and rotation
     plt.tight_layout()
-    plt.savefig("topic_occurrences.png")
+    plt.savefig(
+        "topic_occurrences.png", bbox_inches="tight"
+    )  # Use bbox_inches to ensure labels fit in the image
     plt.show()
+    return
+
+
+def visualize_topic_occurrences_pie(df):
+    # Select top 10 topics by occurrence
+    topic_counts = df["merged_label_names"].value_counts().head(10)
+
+    # Create a pie chart
+    plt.figure(figsize=(12, 8))
+    plt.pie(
+        topic_counts,
+        labels=topic_counts.index,
+        autopct="%1.1f%%",
+        textprops={"fontsize": 10},
+    )
+    plt.title("Occurrences of Common Topics")
+    plt.tight_layout()
+
+    # Save the plot to a file
+    plt.savefig("topic_occurrences_pie.png", bbox_inches="tight")
+    plt.show()
+    return
+
+
+# Parallel text processing
+def process_text(row):
+    combined_text = f"{row['invention_title']['text']} {row['abstract']['text']} {row['claims']['text']}"
+    cleaned_text = clean_text(combined_text)
+    return remove_stopwords(cleaned_text)
 
 
 # Main function to run topic extraction and visualization
@@ -99,22 +125,28 @@ def main():
 
     # if case_data.json is not present in output file the apply format__and_save_json
     if not os.path.exists(output_file):
+        print("📌 Converting into Json format..")
         format_and_save_json(input_file, output_file)
 
-    # format_and_save_json(input_file, output_file)
-
-
-
     patent_data = output_file
+
+    print("=== Loading patent data ===")
+
     df = pd.read_json(patent_data)
-    df["text"] = (
-        df["invention_title"].apply(lambda x: x["text"])
-        + " "
-        + df["abstract"].apply(lambda x: x["text"])
-        + " "
-        + df["claims"].apply(lambda x: x["text"])
-    )
-    df["cleaned_text"] = df["text"].apply(clean_text).apply(remove_stopwords)
+
+    # using first 1000 row
+    # df = df.head(1000)
+
+    print("🟢 Sample patent data:", df.head(1))
+
+    print("=== Pre-processing patent data ===")
+
+    with ProcessPoolExecutor() as executor:
+        df["cleaned_text"] = list(
+            executor.map(process_text, df.to_dict(orient="records"))
+        )
+
+    print("=== Loading BERTopic model ===")
 
     topic_model = BERTopic()
     df["topic"] = topic_model.fit_transform(df["cleaned_text"].tolist())[0]
@@ -122,46 +154,65 @@ def main():
     topic_labels = topic_model.generate_topic_labels()
     topic_labels = [label for label in topic_labels if "-1_" not in label]
     embeddings = topic_model.topic_embeddings_
+
+    print("=== Finding Topic Similarities ===")
+
     similarity_matrix = cosine_similarity(embeddings)
     merged_topics = merge_similar_topics(topic_labels, similarity_matrix)
 
+    # eleminate the same words in merged topics
+    merged_topics = list(set(merged_topics))
+
+    # make topic title to merged_topics
+    # merged_topics = [f"topic_{i}" for i in range(len(merged_topics))]
+
+    print("=== Merged Topics ===")
+
+    print("🟢 Merged topics:", merged_topics)
+
     topic_labels_df = pd.DataFrame({"Label": merged_topics})
+
     new_columns = {}
 
     for index, row in topic_labels_df.iterrows():
         label = row["Label"]
         label_words = label.split("_")
-        column_data = [False] * len(df)
-
-        for word in label_words:
-            column_data = [
-                col or bool(re.search(word, text, re.IGNORECASE))
-                for col, text in zip(column_data, df["cleaned_text"])
-            ]
-
+        column_data = df["cleaned_text"].apply(
+            lambda x: any(re.search(word, x, re.IGNORECASE) for word in label_words)
+        )
         new_columns[f"topic_{index}"] = column_data
 
     new_columns_df = pd.DataFrame(new_columns)
     df = pd.concat([df, new_columns_df], axis=1)
 
-    true_topics = []
-    for _, row in df.iterrows():
-        true_topic_nums = [
-            i for i, val in enumerate(row[df.columns[15:]]) if val == True
-        ]
-        true_topics.append(true_topic_nums)
+    df["true_topic_nums"] = df.iloc[:, 15:].apply(
+        lambda row: [i for i, val in enumerate(row) if val], axis=1
+    )
 
-    df["true_topic_nums"] = true_topics
+    df["merged_label_names"] = df["true_topic_nums"].apply(
+        lambda topic_nums: ", ".join(
+            merged_topics[i] for i in topic_nums if i < len(merged_topics)
+        )
+    )
 
-    merged_label_names = []
-    for _, row in df.iterrows():
-        topic_nums = row["true_topic_nums"]
-        label_names = [merged_topics[i] for i in topic_nums if i < len(merged_topics)]
-        merged_label_names.append(", ".join(label_names))
+    # get mostly occured merged_label_names
+    print(
+        "🟢 Mostly occured merged_label_names:",
+        df["merged_label_names"].value_counts().idxmax(),
+    )
 
-    df["merged_label_names"] = merged_label_names
+    # generate one short word topic name for each merged label names
 
-    visualize_topic_occurrences(df)
+    # get top 10 occured topics to visualize_topic_occurances
+    print(
+        "🟢 Top 10 occured merged_label_names:",
+        df["merged_label_names"].value_counts().head(10),
+    )
+
+    print("=== Visualizing topic occurances ===")
+
+    # visualize_topic_occurrences(df)
+    visualize_topic_occurrences_pie(df)
 
     return df
 
