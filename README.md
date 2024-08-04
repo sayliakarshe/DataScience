@@ -4,7 +4,6 @@
 
 - The data is a collection of patents. The data is in XML format. The data is available in the data folder.
 
-
 ## Requirements
 
 - Python 3.8
@@ -25,12 +24,10 @@ pip3 install -r requirements.txt
 
 ```bash
 
-python3 topicExtraction.py
+python3 topicExtraction.py ./data
 
 ```
 
 ## Output
-- The output will be a CSV file named "topics.csv" in the output folder. The CSV file will contain the topics extracted from the patent dataset.
-    
 
-
+- The output will be a CSV file named "extracted_topics.csv" in the data folder. The CSV file will contain the topics extracted from the patent dataset.
