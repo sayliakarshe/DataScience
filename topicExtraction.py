@@ -10,13 +10,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 from concurrent.futures import ProcessPoolExecutor
 
-# nltk.data.path.append('./nltk_data')
-
-# # Now you can download the data without SSL issues
-# nltk.download('stopwords', download_dir='/Users/sayliakarshe/nltk_data')
-# nltk.download('punkt', download_dir='./nltk_data')
-# nltk.download('wordnet', download_dir='./nltk_data')
-
 
 # Function to format and save JSON
 def format_and_save_json(input_file, output_file):
@@ -67,13 +60,13 @@ def merge_similar_topics(topics, similarity_matrix, threshold=0.9):
     return merged_topics
 
 
-# Function to visualize the topic occurrences
+# Function to visualize the topic occurrences bar chart
 def visualize_topic_occurrences(df):
     topic_counts = df["merged_label_names"].value_counts().head(10)
 
     plt.figure(figsize=(12, 8))
     topic_counts.sort_values(ascending=False).plot(kind="bar")
-    plt.title("Occurrences of Merged Topics")
+    plt.title("Occurrences of Topics")
     plt.xlabel("Merged Topic Names")
     plt.ylabel("Number of Occurrences")
     plt.xticks(rotation=75, ha="right", fontsize=10)  # Adjust font size and rotation
@@ -85,6 +78,7 @@ def visualize_topic_occurrences(df):
     return
 
 
+# Function to visualize the topic occurrences pie chart
 def visualize_topic_occurrences_pie(df):
     # Select top 10 topics by occurrence
     topic_counts = df["merged_label_names"].value_counts().head(10)
@@ -113,7 +107,6 @@ def process_text(row):
     return remove_stopwords(cleaned_text)
 
 
-# Main function to run topic extraction and visualization
 def main():
     if len(sys.argv) == 1:
         print("=== No data folder provided ===")
@@ -123,7 +116,6 @@ def main():
     input_file = data_folder + "case_data.txt"
     output_file = data_folder + "case_data.json"
 
-    # if case_data.json is not present in output file the apply format__and_save_json
     if not os.path.exists(output_file):
         print("📌 Converting into Json format..")
         format_and_save_json(input_file, output_file)
@@ -134,10 +126,7 @@ def main():
 
     df = pd.read_json(patent_data)
 
-    # using first 1000 row
-    # df = df.head(1000)
-
-    print("🟢 Sample patent data:", df.head(1))
+    # print("🟢 Sample patent data:", df.head(1))
 
     print("=== Pre-processing patent data ===")
 
@@ -163,12 +152,9 @@ def main():
     # eleminate the same words in merged topics
     merged_topics = list(set(merged_topics))
 
-    # make topic title to merged_topics
-    # merged_topics = [f"topic_{i}" for i in range(len(merged_topics))]
+    df_topics = pd.DataFrame(merged_topics)
 
-    print("=== Merged Topics ===")
-
-    print("🟢 Merged topics:", merged_topics)
+    df_topics.to_csv(data_folder + "extracted_topics.csv", index=False)
 
     topic_labels_df = pd.DataFrame({"Label": merged_topics})
 
@@ -195,18 +181,9 @@ def main():
         )
     )
 
-    # get mostly occured merged_label_names
     print(
-        "🟢 Mostly occured merged_label_names:",
-        df["merged_label_names"].value_counts().idxmax(),
-    )
-
-    # generate one short word topic name for each merged label names
-
-    # get top 10 occured topics to visualize_topic_occurances
-    print(
-        "🟢 Top 10 occured merged_label_names:",
-        df["merged_label_names"].value_counts().head(10),
+        "🟢 Mostly occured topics:",
+        df["merged_label_names"].value_counts().head(1),
     )
 
     print("=== Visualizing topic occurances ===")
@@ -214,7 +191,8 @@ def main():
     # visualize_topic_occurrences(df)
     visualize_topic_occurrences_pie(df)
 
-    return df
+    print("=== Done ===")
+    exit(0)
 
 
 if __name__ == "__main__":
