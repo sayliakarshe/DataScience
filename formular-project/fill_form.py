@@ -1,30 +1,27 @@
-from PyPDF2 import PdfReader, PdfWriter
+from pdfrw import PdfReader, PdfWriter, PdfDict
 
-# Load the PDF
-reader = PdfReader("./formular-project/example_data/i-485.pdf")
-writer = PdfWriter()
+# Load the blank form
+template_pdf = PdfReader("./formular-project/example_data/i-485.pdf")
 
-# Check available form fields
-fields = reader.get_fields()
-print("Available fields:")
-for field_name in fields:
-    print(field_name)
+# Map of field names to values
+# (You may need to adjust the keys depending on the actual field names in the PDF)
+data_dict = {
+    'Family Name (Last Name)': 'Doe',
+    'Given Name (First Name)': 'John',
+    'Middle Name (if applicable)': 'Alan'
+}
 
-# Copy pages into writer
-writer.append_pages_from_reader(reader)
+# Loop over pages and fill fields
+for page in template_pdf.pages:
+    if '/Annots' in page:
+        for annotation in page['/Annots']:
+            field = annotation.get_object()
+            if field['/Subtype'] == '/Widget' and '/T' in field:
+                key = field['/T'][1:-1]  # remove parentheses
+                if key in data_dict:
+                    field.update(
+                        PdfDict(V='{}'.format(data_dict[key]))
+                    )
 
-# Fill some fields (replace with real values)
-writer.update_page_form_field_values(
-    writer.pages[0],
-    {
-        "form1[0].#subform[0].Pt1Ln1_FamilyName[0]": "DOE",       # Last name
-        "form1[0].#subform[0].Pt1Ln1_GivenName[0]": "JOHN",       # First name
-        "form1[0].#subform[0].Pt1Ln3_DateofBirth[0]": "01/01/1990"
-    }
-)
-
-# Save to a new file
-with open("./formular-project/example_data/i-485-filled.pdf", "wb") as f:
-    writer.write(f)
-
-print("✅ PDF filled and saved as i-485-filled.pdf")
+# Write the filled form to a new PDF
+PdfWriter().write("./formular-project/example_data/i-485_filled.pdf", template_pdf)
